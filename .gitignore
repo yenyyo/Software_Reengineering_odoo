@@ -1,3 +1,7 @@
+# Python Environment
+odoo_env/
+notes.py
+
 # sphinx build directories
 _build/
 
