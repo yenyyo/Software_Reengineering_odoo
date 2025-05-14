@@ -227,160 +227,170 @@ class LoyaltyProgram(models.Model):
 
     @api.model
     def _program_type_default_values(self):
-        # All values to change when program_type changes
-        # NOTE: any field used in `rule_ids`, `reward_ids` and `communication_plan_ids` MUST be present in the kanban view for it to work properly.
-        first_sale_product = self.env['product.product'].search([('company_id', 'in', [False, self.env.company.id]), ('sale_ok', '=', True)], limit=1)
+        """Return default settings per program type, split into helpers."""
+        product = self._get_first_sale_product()
         return {
-            'coupons': {
-                'applies_on': 'current',
-                'trigger': 'with_code',
-                'portal_visible': False,
-                'portal_point_name': _('Coupon point(s)'),
-                'rule_ids': [(5, 0, 0)],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'required_points': 1,
-                    'discount': 10,
-                })],
-                'communication_plan_ids': [(5, 0, 0), (0, 0, {
-                    'trigger': 'create',
-                    'mail_template_id': (self.env.ref('loyalty.mail_template_loyalty_card', raise_if_not_found=False) or self.env['mail.template']).id,
-                })],
-            },
-            'promotion': {
-                'applies_on': 'current',
-                'trigger': 'auto',
-                'portal_visible': False,
-                'portal_point_name': _('Promo point(s)'),
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'reward_point_amount': 1,
-                    'reward_point_mode': 'order',
-                    'minimum_amount': 50,
-                    'minimum_qty': 0,
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'required_points': 1,
-                    'discount': 10,
-                })],
-                'communication_plan_ids': [(5, 0, 0)],
-            },
-            'gift_card': {
-                'applies_on': 'future',
-                'trigger': 'auto',
-                'portal_visible': True,
-                'portal_point_name': self.env.company.currency_id.symbol,
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'reward_point_amount': 1,
-                    'reward_point_mode': 'money',
-                    'reward_point_split': True,
-                    'product_ids': self.env.ref('loyalty.gift_card_product_50', raise_if_not_found=False),
-                    'minimum_qty': 0,
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'reward_type': 'discount',
-                    'discount_mode': 'per_point',
-                    'discount': 1,
-                    'discount_applicability': 'order',
-                    'required_points': 1,
-                    'description': _('Gift Card'),
-                })],
-                'communication_plan_ids': [(5, 0, 0), (0, 0, {
-                    'trigger': 'create',
-                    'mail_template_id': (self.env.ref('loyalty.mail_template_gift_card', raise_if_not_found=False) or self.env['mail.template']).id,
-                })],
-            },
-            'loyalty': {
-                'applies_on': 'both',
-                'trigger': 'auto',
-                'portal_visible': True,
-                'portal_point_name': _('Loyalty point(s)'),
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'reward_point_mode': 'money',
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'discount': 5,
-                    'required_points': 200,
-                })],
-                'communication_plan_ids': [(5, 0, 0)],
-            },
-            'ewallet': {
-                'trigger': 'auto',
-                'applies_on': 'future',
-                'portal_visible': True,
-                'portal_point_name': self.env.company.currency_id.symbol,
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'reward_point_amount': '1',
-                    'reward_point_mode': 'money',
-                    'reward_point_split': False,
-                    'product_ids': self.env.ref('loyalty.ewallet_product_50', raise_if_not_found=False),
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'reward_type': 'discount',
-                    'discount_mode': 'per_point',
-                    'discount': 1,
-                    'discount_applicability': 'order',
-                    'required_points': 1,
-                    'description': _('eWallet'),
-                })],
-                'communication_plan_ids': [(5, 0, 0)],
-            },
-            'promo_code': {
-                'applies_on': 'current',
-                'trigger': 'with_code',
-                'portal_visible': False,
-                'portal_point_name': _('Discount point(s)'),
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'mode': 'with_code',
-                    'code': 'PROMO_CODE_' + str(uuid4())[:4], # We should try not to trigger any unicity constraint
-                    'minimum_qty': 0,
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'discount_applicability': 'specific',
-                    'discount_product_ids': first_sale_product,
-                    'discount_mode': 'percent',
-                    'discount': 10,
-                })],
-                'communication_plan_ids': [(5, 0, 0)],
-            },
-            'buy_x_get_y': {
-                'applies_on': 'current',
-                'trigger': 'auto',
-                'portal_visible': False,
-                'portal_point_name': _('Credit(s)'),
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'reward_point_mode': 'unit',
-                    'product_ids': first_sale_product,
-                    'minimum_qty': 2,
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'reward_type': 'product',
-                    'reward_product_id': first_sale_product.id,
-                    'required_points': 2,
-                })],
-                'communication_plan_ids': [(5, 0, 0)],
-            },
-            'next_order_coupons': {
-                'applies_on': 'future',
-                'trigger': 'auto',
-                'portal_visible': True,
-                'portal_point_name': _('Coupon point(s)'),
-                'rule_ids': [(5, 0, 0), (0, 0, {
-                    'minimum_amount': 100,
-                    'minimum_qty': 0,
-                })],
-                'reward_ids': [(5, 0, 0), (0, 0, {
-                    'reward_type': 'discount',
-                    'discount_mode': 'percent',
-                    'discount': 15,
-                    'discount_applicability': 'order',
-                })],
-                'communication_plan_ids': [(5, 0, 0), (0, 0, {
+            'coupons': self._default_values_coupons(),
+            'promotion': self._default_values_promotion(),
+            'gift_card': self._default_values_gift_card(),
+            'loyalty': self._default_values_loyalty(),
+            'ewallet': self._default_values_ewallet(),
+            'promo_code': self._default_values_promo_code(product),
+            'buy_x_get_y': self._default_values_buy_x_get_y(product),
+            'next_order_coupons': self._default_values_next_order_coupons(),
+        }
+
+    def _get_first_sale_product(self):
+        return self.env['product.product'].search([
+            ('company_id', 'in', [False, self.env.company.id]),
+            ('sale_ok', '=', True),
+        ], limit=1)
+
+    def _default_values_coupons(self):
+        return {
+            'applies_on': 'current', 'trigger': 'with_code', 'portal_visible': False,
+            'portal_point_name': _('Coupon point(s)'),
+            'rule_ids': [(5, 0, 0)],
+            'reward_ids': [(5, 0, 0), (0, 0, {'required_points': 1, 'discount': 10})],
+            'communication_plan_ids': [
+                (5, 0, 0),
+                (0, 0, {
                     'trigger': 'create',
                     'mail_template_id': (
-                        self.env.ref('loyalty.mail_template_loyalty_card', raise_if_not_found=False)
-                        or self.env['mail.template']
+                        self.env.ref(
+                            'loyalty.mail_template_loyalty_card',
+                            raise_if_not_found=False
+                        ) or self.env['mail.template']
                     ).id,
-                })],
-            },
+                })
+            ],
+        }
+
+    def _default_values_promotion(self):
+        return {
+            'applies_on': 'current', 'trigger': 'auto', 'portal_visible': False,
+            'portal_point_name': _('Promo point(s)'),
+            'rule_ids': [(5, 0, 0), (0, 0, {
+                'reward_point_amount': 1, 'reward_point_mode': 'order',
+                'minimum_amount': 50, 'minimum_qty': 0,
+            })],
+            'reward_ids': [(5, 0, 0), (0, 0, {'required_points': 1, 'discount': 10})],
+            'communication_plan_ids': [(5, 0, 0)],
+        }
+
+    def _default_values_gift_card(self):
+        return {
+            'applies_on': 'future', 'trigger': 'auto', 'portal_visible': True,
+            'portal_point_name': self.env.company.currency_id.symbol,
+            'rule_ids': [(5, 0, 0), (0, 0, {
+                'reward_point_amount': 1, 'reward_point_mode': 'money',
+                'reward_point_split': True,
+                'product_ids': self.env.ref(
+                    'loyalty.gift_card_product_50',
+                    raise_if_not_found=False
+                ), 'minimum_qty': 0,
+            })],
+            'reward_ids': [(5, 0, 0), (0, 0, {
+                'reward_type': 'discount', 'discount_mode': 'per_point',
+                'discount': 1, 'discount_applicability': 'order',
+                'required_points': 1, 'description': _('Gift Card'),
+            })],
+            'communication_plan_ids': [
+                (5, 0, 0),
+                (0, 0, {
+                    'trigger': 'create',
+                    'mail_template_id': (
+                        self.env.ref(
+                            'loyalty.mail_template_gift_card',
+                            raise_if_not_found=False
+                        ) or self.env['mail.template']
+                    ).id,
+                })
+            ],
+        }
+
+    def _default_values_loyalty(self):
+        return {
+            'applies_on': 'both', 'trigger': 'auto', 'portal_visible': True,
+            'portal_point_name': _('Loyalty point(s)'),
+            'rule_ids': [(5, 0, 0), (0, 0, {'reward_point_mode': 'money'})],
+            'reward_ids': [(5, 0, 0), (0, 0, {'discount': 5, 'required_points': 200})],
+            'communication_plan_ids': [(5, 0, 0)],
+        }
+
+    def _default_values_ewallet(self):
+        return {
+            'trigger': 'auto', 'applies_on': 'future', 'portal_visible': True,
+            'portal_point_name': self.env.company.currency_id.symbol,
+            'rule_ids': [(5, 0, 0), (0, 0, {
+                'reward_point_amount': '1', 'reward_point_mode': 'money',
+                'reward_point_split': False,
+                'product_ids': self.env.ref(
+                    'loyalty.ewallet_product_50',
+                    raise_if_not_found=False
+                ),
+            })],
+            'reward_ids': [(5, 0, 0), (0, 0, {
+                'reward_type': 'discount', 'discount_mode': 'per_point',
+                'discount': 1, 'discount_applicability': 'order',
+                'required_points': 1, 'description': _('eWallet'),
+            })],
+            'communication_plan_ids': [(5, 0, 0)],
+        }
+
+    def _default_values_promo_code(self, product):
+        code = 'PROMO_CODE_' + str(uuid4())[:4]
+        return {
+            'applies_on': 'current', 'trigger': 'with_code', 'portal_visible': False,
+            'portal_point_name': _('Discount point(s)'),
+            'rule_ids': [(5, 0, 0), (0, 0, {
+                'mode': 'with_code', 'code': code, 'minimum_qty': 0,
+            })],
+            'reward_ids': [(5, 0, 0), (0, 0, {
+                'discount_applicability': 'specific',
+                'discount_product_ids': product,
+                'discount_mode': 'percent', 'discount': 10,
+            })],
+            'communication_plan_ids': [(5, 0, 0)],
+        }
+
+    def _default_values_buy_x_get_y(self, product):
+        return {
+            'applies_on': 'current', 'trigger': 'auto', 'portal_visible': False,
+            'portal_point_name': _('Credit(s)'),
+            'rule_ids': [(5, 0, 0), (0, 0, {
+                'reward_point_mode': 'unit', 'product_ids': product, 'minimum_qty': 2,
+            })],
+            'reward_ids': [(5, 0, 0), (0, 0, {
+                'reward_type': 'product', 'reward_product_id': product.id,
+                'required_points': 2,
+            })],
+            'communication_plan_ids': [(5, 0, 0)],
+        }
+
+    def _default_values_next_order_coupons(self):
+        return {
+            'applies_on': 'future', 'trigger': 'auto', 'portal_visible': True,
+            'portal_point_name': _('Coupon point(s)'),
+            'rule_ids': [(5, 0, 0), (0, 0, {
+                'minimum_amount': 100, 'minimum_qty': 0,
+            })],
+            'reward_ids': [(5, 0, 0), (0, 0, {
+                'reward_type': 'discount', 'discount_mode': 'percent',
+                'discount': 15, 'discount_applicability': 'order',
+            })],
+            'communication_plan_ids': [
+                (5, 0, 0),
+                (0, 0, {
+                    'trigger': 'create',
+                    'mail_template_id': (
+                        self.env.ref(
+                            'loyalty.mail_template_loyalty_card',
+                            raise_if_not_found=False
+                        ) or self.env['mail.template']
+                    ).id,
+                })
+            ],
         }
 
     @api.depends('program_type')
