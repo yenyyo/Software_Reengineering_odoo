@@ -201,49 +201,51 @@ class LoyaltyReward(models.Model):
 
     @api.depends('reward_type', 'reward_product_id', 'discount_mode', 'reward_product_tag_id',
                  'discount', 'currency_id', 'discount_applicability', 'all_discount_product_ids')
+
     def _compute_description(self):
         for reward in self:
-            reward_string = ""
-            if reward.program_type == 'gift_card':
-                reward_string = _("Gift Card")
-            elif reward.program_type == 'ewallet':
-                reward_string = _("eWallet")
-            elif reward.reward_type == 'product':
-                products = reward.reward_product_ids
-                if len(products) == 0:
-                    reward_string = _('Free Product')
-                elif len(products) == 1:
-                    reward_string = _('Free Product - %s', reward.reward_product_id.with_context(display_default_code=False).display_name)
+            # Program types
+            if reward.program_type in ('gift_card', 'ewallet'):
+                reward.description = _('Gift Card') if reward.program_type == 'gift_card' else _('eWallet')
+                continue
+
+            # Product rewards
+            if reward.reward_type == 'product':
+                prods = reward.reward_product_ids.with_context(display_default_code=False)
+                names = prods.mapped('display_name')
+                if not names:
+                    reward.description = _('Free Product')
+                elif len(names) == 1:
+                    reward.description = _('Free Product - %s') % names[0]
                 else:
-                    reward_string = _('Free Product - [%s]', ', '.join(products.with_context(display_default_code=False).mapped('display_name')))
-            elif reward.reward_type == 'discount':
-                format_string = '%(amount)g %(symbol)s'
-                if reward.currency_id.position == 'before':
-                    format_string = '%(symbol)s %(amount)g'
-                formatted_amount = format_string % {'amount': reward.discount, 'symbol': reward.currency_id.symbol}
-                if reward.discount_mode == 'percent':
-                    reward_string = _('%g%% on ', reward.discount)
-                elif reward.discount_mode == 'per_point':
-                    reward_string = _('%s per point on ', formatted_amount)
-                elif reward.discount_mode == 'per_order':
-                    reward_string = _('%s on ', formatted_amount)
-                if reward.discount_applicability == 'order':
-                    reward_string += _('your order')
-                elif reward.discount_applicability == 'cheapest':
-                    reward_string += _('the cheapest product')
-                elif reward.discount_applicability == 'specific':
-                    product_available = self.env['product.product'].search(reward._get_discount_product_domain(), limit=2)
-                    if len(product_available) == 1:
-                        reward_string += product_available.with_context(display_default_code=False).display_name
-                    else:
-                        reward_string += _('specific products')
-                if reward.discount_max_amount:
-                    format_string = '%(amount)g %(symbol)s'
-                    if reward.currency_id.position == 'before':
-                        format_string = '%(symbol)s %(amount)g'
-                    formatted_amount = format_string % {'amount': reward.discount_max_amount, 'symbol': reward.currency_id.symbol}
-                    reward_string += _(' (Max %s)', formatted_amount)
-            reward.description = reward_string
+                    reward.description = _('Free Product - [%s]') % ', '.join(names)
+                continue
+
+            # Discount rewards
+            # Helper for amount formatting
+            fmt = lambda amt: ('%s %g' if reward.currency_id.position == 'before' else '%g %s') % (reward.currency_id.symbol, amt) if reward.currency_id.position == 'before' else ('%g %s') % (amt, reward.currency_id.symbol)
+            # Base description
+            if reward.discount_mode == 'percent':
+                desc = _('%g%% on ') % reward.discount
+            else:
+                label = _('per point on ') if reward.discount_mode == 'per_point' else _('on ')
+                desc = '%s%s' % (fmt(reward.discount), label)
+
+            # Applicability
+            if reward.discount_applicability == 'order':
+                desc += _('your order')
+            elif reward.discount_applicability == 'cheapest':
+                desc += _('the cheapest product')
+            elif reward.discount_applicability == 'specific':
+                items = self.env['product.product'].search(reward._get_discount_product_domain(), limit=2)
+                desc += items.with_context(display_default_code=False).display_name if len(items) == 1 else _('specific products')
+
+            # Max amount
+            if reward.discount_max_amount:
+                desc += _(' (Max %s)') % fmt(reward.discount_max_amount)
+
+            reward.description = desc
+
 
     @api.depends('reward_type', 'discount_applicability', 'discount_mode')
     def _compute_is_global_discount(self):
@@ -278,18 +280,33 @@ class LoyaltyReward(models.Model):
         return res
 
     def write(self, vals):
-        res = super().write(vals)
+        # Call super and capture result
+        result = super().write(vals)
+
+        # Update discount line products if description changed
         if 'description' in vals:
-            self._create_missing_discount_line_products()
-            # Keep the name of our discount product up to date
-            for reward in self:
-                reward.discount_line_product_id.write({'name': reward.description})
+            self._update_discount_line_products()
+
+        # Archive or unarchive related products if active status changed
         if 'active' in vals:
-            if vals['active']:
-                self.discount_line_product_id.action_unarchive()
+            self._sync_active_status(vals.get('active', True))
+
+        return result
+
+    def _update_discount_line_products(self):
+        # Ensure discount line products exist
+        self._create_missing_discount_line_products()
+        # Rename to match new description
+        for reward in self:
+            reward.discount_line_product_id.write({'name': reward.description})
+
+    def _sync_active_status(self, active):
+        # Archive or unarchive the discount line product
+        for reward in self:
+            if active:
+                reward.discount_line_product_id.action_unarchive()
             else:
-                self.discount_line_product_id.action_archive()
-        return res
+                reward.discount_line_product_id.action_archive()
 
     def unlink(self):
         programs = self.program_id
