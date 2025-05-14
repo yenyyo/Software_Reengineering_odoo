@@ -201,50 +201,72 @@ class LoyaltyReward(models.Model):
 
     @api.depends('reward_type', 'reward_product_id', 'discount_mode', 'reward_product_tag_id',
                  'discount', 'currency_id', 'discount_applicability', 'all_discount_product_ids')
-
     def _compute_description(self):
+        """
+        Delegates description building to specific handlers:
+        - Program types
+        - Product rewards
+        - Discount rewards
+        """
         for reward in self:
-            # Program types
-            if reward.program_type in ('gift_card', 'ewallet'):
-                reward.description = _('Gift Card') if reward.program_type == 'gift_card' else _('eWallet')
+            # Program type labels
+            program_labels = {
+                'gift_card': _('Gift Card'),
+                'ewallet': _('eWallet'),
+            }
+            if reward.program_type in program_labels:
+                reward.description = program_labels[reward.program_type]
                 continue
 
             # Product rewards
             if reward.reward_type == 'product':
-                prods = reward.reward_product_ids.with_context(display_default_code=False)
-                names = prods.mapped('display_name')
-                if not names:
-                    reward.description = _('Free Product')
-                elif len(names) == 1:
-                    reward.description = _('Free Product - %s') % names[0]
-                else:
-                    reward.description = _('Free Product - [%s]') % ', '.join(names)
+                reward.description = self._desc_product(reward)
                 continue
 
             # Discount rewards
-            # Helper for amount formatting
-            fmt = lambda amt: ('%s %g' if reward.currency_id.position == 'before' else '%g %s') % (reward.currency_id.symbol, amt) if reward.currency_id.position == 'before' else ('%g %s') % (amt, reward.currency_id.symbol)
-            # Base description
-            if reward.discount_mode == 'percent':
-                desc = _('%g%% on ') % reward.discount
-            else:
-                label = _('per point on ') if reward.discount_mode == 'per_point' else _('on ')
-                desc = '%s%s' % (fmt(reward.discount), label)
+            reward.description = self._desc_discount(reward)
 
-            # Applicability
-            if reward.discount_applicability == 'order':
-                desc += _('your order')
-            elif reward.discount_applicability == 'cheapest':
-                desc += _('the cheapest product')
-            elif reward.discount_applicability == 'specific':
-                items = self.env['product.product'].search(reward._get_discount_product_domain(), limit=2)
-                desc += items.with_context(display_default_code=False).display_name if len(items) == 1 else _('specific products')
+    def _desc_product(self, reward):
+        prods = reward.reward_product_ids.with_context(display_default_code=False)
+        names = prods.mapped('display_name')
+        if not names:
+            return _('Free Product')
+        if len(names) == 1:
+            return _('Free Product - %s') % names[0]
+        return _('Free Product - [%s]') % ', '.join(names)
 
-            # Max amount
-            if reward.discount_max_amount:
-                desc += _(' (Max %s)') % fmt(reward.discount_max_amount)
+    def _desc_discount(self, reward):
+        # Amount formatting helper
+        def fmt(amt):
+            symbol = reward.currency_id.symbol
+            if reward.currency_id.position == 'before':
+                return '%s %g' % (symbol, amt)
+            return '%g %s' % (amt, symbol)
 
-            reward.description = desc
+        # Base
+        if reward.discount_mode == 'percent':
+            desc = _('%g%% on ') % reward.discount
+        else:
+            label = _('per point on ') if reward.discount_mode == 'per_point' else _('on ')
+            desc = '%s%s' % (fmt(reward.discount), label)
+
+        # Applicability
+        app = reward.discount_applicability
+        if app == 'order':
+            desc += _('your order')
+        elif app == 'cheapest':
+            desc += _('the cheapest product')
+        elif app == 'specific':
+            items = self.env['product.product'].search(
+                reward._get_discount_product_domain(), limit=2
+            )
+            desc += (items.with_context(display_default_code=False).display_name
+                     if len(items) == 1 else _('specific products'))
+
+        # Max cap
+        if reward.discount_max_amount:
+            desc += _(' (Max %s)') % fmt(reward.discount_max_amount)
+        return desc
 
 
     @api.depends('reward_type', 'discount_applicability', 'discount_mode')
