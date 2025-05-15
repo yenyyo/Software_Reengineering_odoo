@@ -49,6 +49,10 @@ class LoyaltyRule(models.Model):
 
     product_ids = fields.Many2many('product.product', string='Products')
     product_category_id = fields.Many2one('product.category', string='Categories')
+    product_category_ids = fields.Many2many('product.category', string='Required Categories',
+        help="Products must belong to all these categories to earn points")
+    require_all_categories = fields.Boolean('Require All Categories', default=True,
+        help="If checked, products must belong to all selected categories. If unchecked, products can belong to any of the selected categories.")
     product_tag_id = fields.Many2one('product.tag', string='Product Tag')
 
     reward_point_amount = fields.Float(default=1, string="Reward")
@@ -125,6 +129,12 @@ class LoyaltyRule(models.Model):
             constrains.append([('id', 'in', self.product_ids.ids)])
         if self.product_category_id:
             constrains.append([('categ_id', 'child_of', self.product_category_id.id)])
+        if self.product_category_ids:
+            if self.require_all_categories:
+                # For requiring all categories, we'll handle this in the order validation
+                constrains.append([('categ_id', 'in', self.product_category_ids.ids)])
+            else:
+                constrains.append([('categ_id', 'in', self.product_category_ids.ids)])
         if self.product_tag_id:
             constrains.append([('all_product_tag_ids', 'in', self.product_tag_id.id)])
         domain = expression.OR(constrains) if constrains else []
@@ -144,3 +154,16 @@ class LoyaltyRule(models.Model):
             self.company_id or self.env.company,
             fields.Date.today()
         )
+
+    def _validate_order_categories(self, order):
+        """
+        Validates if the order contains products from all required categories
+        when require_all_categories is True
+        """
+        self.ensure_one()
+        if not self.product_category_ids or not self.require_all_categories:
+            return True
+
+        order_categories = order.order_line.mapped('product_id.categ_id')
+        required_categories = self.product_category_ids
+        return all(category in order_categories for category in required_categories)
