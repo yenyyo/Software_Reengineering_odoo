@@ -1169,6 +1169,8 @@ class SaleOrder(models.Model):
                     break
                 if rule.mode == 'with_code' and rule not in self.code_enabled_rule_ids:
                     continue
+                if rule.require_all_categories and not rule._validate_order_categories(self):
+                    continue
                 code_matched = True
                 rule_amount = rule._compute_amount(self.currency_id)
                 untaxed_amount = sum(lines_per_rule[rule].mapped('price_subtotal'))
