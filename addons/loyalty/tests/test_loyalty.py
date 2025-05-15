@@ -287,3 +287,52 @@ class TestLoyalty(TransactionCase):
             "Free Product - [Test Product, Test Product 2]",
             "Reward description for reward with tag should be 'Free Product - [Test Product, Test Product 2]'"
         )
+
+    def test_basic_category_assignment(self):
+        # Creating a product category
+        category = self.env['product.category'].create({'name': 'Test Category'})
+        
+        # Creating a loyalty program first
+        program = self.env['loyalty.program'].create({
+            'name': 'Test Program',
+            'program_type': 'promotion',
+            'trigger': 'auto',
+            'applies_on': 'current',
+        })
+        
+        # Creating a loyalty reward with discount_applicability = 'specific'
+        reward = self.env['loyalty.reward'].create({
+            'program_id': program.id,
+            'reward_type': 'discount',
+            'discount': 10.0,
+            'discount_applicability': 'specific',
+            'discount_product_category_ids': [(6, 0, [category.id])]
+        })
+        
+        # Verifying the category is assigned
+        self.assertEqual(reward.discount_product_category_ids, category)
+
+    def test_multiple_categories_assignment(self):
+        # Creating two product categories
+        category1 = self.env['product.category'].create({'name': 'Test Category 1'})
+        category2 = self.env['product.category'].create({'name': 'Test Category 2'})
+        
+        # Creating a loyalty program
+        program = self.env['loyalty.program'].create({
+            'name': 'Test Program',
+            'program_type': 'promotion',
+            'trigger': 'auto',
+            'applies_on': 'current',
+        })
+        
+        # Creating a loyalty reward with discount_applicability = 'specific'
+        reward = self.env['loyalty.reward'].create({
+            'program_id': program.id,
+            'reward_type': 'discount',
+            'discount': 10.0,
+            'discount_applicability': 'specific',
+            'discount_product_category_ids': [(6, 0, [category1.id, category2.id])]
+        })
+        
+        # Verifying both categories are assigned
+        self.assertEqual(reward.discount_product_category_ids, category1 | category2)
