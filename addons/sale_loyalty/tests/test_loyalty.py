@@ -482,7 +482,7 @@ class TestLoyalty(TestSaleCouponCommon):
 
         self.promotion_code_10pc.rule_ids.product_category_id = product_category_food.id
         self.promotion_code_10pc.reward_ids.discount_applicability = 'specific'
-        self.promotion_code_10pc.reward_ids.discount_product_category_id = product_category_food.id
+        self.promotion_code_10pc.reward_ids.discount_product_category_ids = [(6, 0, [product_category_food.id])]
 
         discount_product = self.env['product.product'].search([('id', '=', self.promotion_code_10pc.reward_ids.discount_line_product_id.id)])
         discount_product.categ_id = product_category_food.id
@@ -1065,3 +1065,245 @@ class TestLoyalty(TestSaleCouponCommon):
         order._update_programs_and_rewards()
         rewards = [value.ids for value in order._get_claimable_rewards().values()]
         self.assertTrue(any(loyalty_program_tag.reward_ids[0].id in r for r in rewards))
+
+    def test_points_awarded_multiple_categories_all_required(self):
+        """
+        Test points awarded when a rule requires multiple categories and all are required.
+        Expected behavior: Points should only be awarded if all required categories are present in the order.
+        """
+        # Create two product categories
+        category1 = self.env['product.category'].create({'name': 'Category 1'})
+        category2 = self.env['product.category'].create({'name': 'Category 2'})
+        
+        # Create products in each category
+        product1 = self.env['product.product'].create({
+            'name': 'Product 1',
+            'categ_id': category1.id,
+            'list_price': 100.0
+        })
+        product2 = self.env['product.product'].create({
+            'name': 'Product 2',
+            'categ_id': category2.id,
+            'list_price': 100.0
+        })
+        
+        # Create loyalty program using template values
+        LoyaltyProgram = self.env['loyalty.program']
+        loyalty_program = LoyaltyProgram.create(LoyaltyProgram._get_template_values()['loyalty'])
+        
+        # Update the rule to require all categories
+        loyalty_program.rule_ids.write({
+            'reward_point_amount': 200,
+            'reward_point_mode': 'order',
+            'minimum_amount': 1,
+            'product_category_ids': [(6, 0, [category1.id, category2.id])],
+            'require_all_categories': True,
+        })
+        
+        # Create loyalty card
+        loyalty_card = self.env['loyalty.card'].create({
+            'program_id': loyalty_program.id,
+            'partner_id': self.partner.id,
+            'points': 0,
+        })
+        
+        # Test case 1: Order with both categories (should get points)
+        order1 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 1,
+                }),
+                Command.create({
+                    'product_id': product2.id,
+                    'product_uom_qty': 1,
+                }),
+            ]
+        })
+        order1.action_confirm()
+        self.assertEqual(loyalty_card.points, 200)  # Points for both products
+        
+        # Test case 2: Order with only one category (should not get points)
+        loyalty_card.points = 0  # Reset points
+        order2 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 1,
+                }),
+            ]
+        })
+        order2.action_confirm()
+        self.assertEqual(loyalty_card.points, 0)  # No points because not all categories present
+
+    def test_points_awarded_multiple_categories_any_required(self):
+        """
+        Test points awarded when a rule requires multiple categories and any category is sufficient.
+        Expected behavior: Points should be awarded if any of the required categories are present in the order.
+        """
+        # Create two product categories
+        category1 = self.env['product.category'].create({'name': 'Category 1'})
+        category2 = self.env['product.category'].create({'name': 'Category 2'})
+        
+        # Create products in each category
+        product1 = self.env['product.product'].create({
+            'name': 'Product 1',
+            'categ_id': category1.id,
+            'list_price': 100.0
+        })
+        product2 = self.env['product.product'].create({
+            'name': 'Product 2',
+            'categ_id': category2.id,
+            'list_price': 100.0
+        })
+        
+        # Create loyalty program using template values
+        LoyaltyProgram = self.env['loyalty.program']
+        loyalty_program = LoyaltyProgram.create(LoyaltyProgram._get_template_values()['loyalty'])
+        
+        # Update the rule to require all categories
+        loyalty_program.rule_ids.write({
+            'reward_point_amount': 200,
+            'reward_point_mode': 'order',
+            'minimum_amount': 1,
+            'product_category_ids': [(6, 0, [category1.id, category2.id])],
+            'require_all_categories': False,
+        })
+        
+        # Create loyalty card
+        loyalty_card = self.env['loyalty.card'].create({
+            'program_id': loyalty_program.id,
+            'partner_id': self.partner.id,
+            'points': 0,
+        })
+        
+        # Test case 1: Order with both categories (should get points)
+        order1 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 1,
+                }),
+                Command.create({
+                    'product_id': product2.id,
+                    'product_uom_qty': 1,
+                }),
+            ]
+        })
+        order1.action_confirm()
+        self.assertEqual(loyalty_card.points, 200)  # Points for both products
+        
+        # Test case 2: Order with only one category (should get points)
+        loyalty_card.points = 0  # Reset points
+        order2 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 1,
+                }),
+            ]
+        })
+        order2.action_confirm()
+        self.assertEqual(loyalty_card.points, 200)  # No points because not all categories present
+
+
+
+
+
+
+
+
+    def test_points_awarded_multiple_categories_all_required_minimum_quantity(self):
+        """
+        Test points awarded when a rule requires multiple categories, all are required and minimum quantity is set.
+        Expected behavior: Points should only be awarded if all required categories are present in the order and the minimum quantity is met.
+        """
+        # Create two product categories
+        category1 = self.env['product.category'].create({'name': 'Category 1'})
+        category2 = self.env['product.category'].create({'name': 'Category 2'})
+        
+        # Create products in each category
+        product1 = self.env['product.product'].create({
+            'name': 'Product 1',
+            'categ_id': category1.id,
+            'list_price': 100.0
+        })
+        product2 = self.env['product.product'].create({
+            'name': 'Product 2',
+            'categ_id': category2.id,
+            'list_price': 100.0
+        })
+        
+        # Create loyalty program using template values
+        LoyaltyProgram = self.env['loyalty.program']
+        loyalty_program = LoyaltyProgram.create(LoyaltyProgram._get_template_values()['loyalty'])
+        
+        # Update the rule to require all categories
+        loyalty_program.rule_ids.write({
+            'reward_point_amount': 200,
+            'reward_point_mode': 'order',
+            'minimum_qty': 3, # This requires at least 3 total units of products in the order (e.g 1 + 2)
+            'product_category_ids': [(6, 0, [category1.id, category2.id])],
+            'require_all_categories': True,
+        })
+        
+        # Create loyalty card
+        loyalty_card = self.env['loyalty.card'].create({
+            'program_id': loyalty_program.id,
+            'partner_id': self.partner.id,
+            'points': 0,
+        })
+        
+        # Test case 1: Order with both categories but less units - 2 < 3 (should not get points)
+        order1 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 1,
+                }),
+                Command.create({
+                    'product_id': product2.id,
+                    'product_uom_qty': 1,
+                }),
+            ]
+        })
+        order1.action_confirm()
+        self.assertEqual(loyalty_card.points, 0)  # No points since the number of total units is less than 3
+        
+        # Test case 2: Order with only one category of 3 units (should not get points)
+        loyalty_card.points = 0  # Reset points
+        order2 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 3,
+                }),
+            ]
+        })
+        order2.action_confirm()
+        self.assertEqual(loyalty_card.points, 0)  # No points because only 1 product category is present instead of 2
+
+
+        # Test case 3: Order with two categories of 3 units (should get points)
+        loyalty_card.points = 0  # Reset points
+        order3 = self.env['sale.order'].with_user(self.user_salemanager).create({
+            'partner_id': self.partner.id,
+            'order_line': [
+                Command.create({
+                    'product_id': product1.id,
+                    'product_uom_qty': 2,
+                }),
+                Command.create({
+                    'product_id': product2.id,
+                    'product_uom_qty': 1,
+                }),
+            ]
+        })
+        order3.action_confirm()
+        self.assertEqual(loyalty_card.points, 200)  # Points should be awarded since both categories are present and the minimum units quantity is met
