@@ -77,7 +77,7 @@ class LoyaltyReward(models.Model):
     )
     discount_product_domain = fields.Char(default="[]")
     discount_product_ids = fields.Many2many('product.product', string="Discounted Products")
-    discount_product_category_id = fields.Many2one('product.category', string="Discounted Prod. Categories")
+    discount_product_category_ids = fields.Many2many('product.category', string="Discounted Prod. Categories")
     discount_product_tag_id = fields.Many2one('product.tag', string="Discounted Prod. Tag")
     all_discount_product_ids = fields.Many2many('product.product', compute='_compute_all_discount_product_ids')
     reward_product_domain = fields.Char(compute='_compute_reward_product_domain', store=False)
@@ -136,9 +136,11 @@ class LoyaltyReward(models.Model):
         constrains = []
         if self.discount_product_ids:
             constrains.append([('id', 'in', self.discount_product_ids.ids)])
-        if self.discount_product_category_id:
-            product_category_ids = self._find_all_category_children(self.discount_product_category_id, [])
-            product_category_ids.append(self.discount_product_category_id.id)
+        if self.discount_product_category_ids:
+            product_category_ids = []
+            for category in self.discount_product_category_ids:
+                product_category_ids.extend(self._find_all_category_children(category, []))
+                product_category_ids.append(category.id)
             constrains.append([('categ_id', 'in', product_category_ids)])
         if self.discount_product_tag_id:
             constrains.append([('all_product_tag_ids', 'in', self.discount_product_tag_id.id)])
@@ -172,7 +174,7 @@ class LoyaltyReward(models.Model):
             else:
                 reward.reward_product_domain = json.dumps(reward._get_discount_product_domain())
 
-    @api.depends('discount_product_ids', 'discount_product_category_id', 'discount_product_tag_id', 'discount_product_domain')
+    @api.depends('discount_product_ids', 'discount_product_category_ids', 'discount_product_tag_id', 'discount_product_domain')
     def _compute_all_discount_product_ids(self):
         compute_all_discount_product = self.env['ir.config_parameter'].sudo().get_param('loyalty.compute_all_discount_product_ids', 'enabled')
         for reward in self:
